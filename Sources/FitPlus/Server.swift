@@ -14,14 +14,11 @@ class Server
     let port = 8888
     let htdocs = "/dev/null/"
     let eventLoopGroup: MultiThreadedEventLoopGroup
-    let fileIO: NonBlockingFileIO
     
-    init(logs: Log, eventLoopGroup: MultiThreadedEventLoopGroup, fileIO: NonBlockingFileIO) {
+    init(logs: Log, eventLoopGroup: MultiThreadedEventLoopGroup) {
         logs.log("Server init")
         self.logs = logs
         self.eventLoopGroup = eventLoopGroup
-        self.fileIO = fileIO
-        //threadPool.start()
         
         let socketBootstrap = ServerBootstrap(group: eventLoopGroup)
             // Specify backlog and enable SO_REUSEADDR for the server itself
@@ -35,13 +32,6 @@ class Server
             .childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
             .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 1)
             .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-        
-//        let pipeBootstrap = NIOPipeBootstrap(group: eventLoopGroup)
-//            // Set the handlers that are applied to the accepted Channels
-//            .channelInitializer(childChannelInitializer(channel:))
-//
-//            .channelOption(ChannelOptions.maxMessagesPerRead, value: 1)
-//            .channelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
         
         defer {
             try! eventLoopGroup.syncShutdownGracefully()
@@ -58,17 +48,15 @@ class Server
         }
         localAddress = "\(channelLocalAddress)"
         logs.log("Server started and listening on \(localAddress), htdocs path \(htdocs)")
-        logs.print()
         try! channel.closeFuture.wait()  // This will never unblock as we don't close the ServerChannel
         logs.log("Server closed")
     }
     
-    //log.log("main.swift func wo object childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> ")
-    //TODO: uses fileIO who uses it?
     func childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> {
         logs.log("Server.childChannelInitializer(channel: Channel) -> EventLoopFuture<Void>")
+        //FIXME: Encapsulation Violation
         return channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {_ in
-            channel.pipeline.addHandler(HttpHandler(fileIO: self.fileIO, htdocsPath: self.htdocs, logs: self.logs))
+            channel.pipeline.addHandler(HttpChannel(htdocsPath: self.htdocs, logs: self.logs))
         }
     }
 }

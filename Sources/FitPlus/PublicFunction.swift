@@ -11,7 +11,6 @@ import NIOHTTP1
 func httpResponseHead(request: HTTPRequestHead, status: HTTPResponseStatus, headers: HTTPHeaders = HTTPHeaders()) -> HTTPResponseHead {
     
     logs.log("PublicFunc httpResponseHead")
-
     
     var head = HTTPResponseHead(version: request.version, status: status, headers: headers)
     let connectionHeaders: [String] = head.headers[canonicalForm: "connection"].map { $0.lowercased() }

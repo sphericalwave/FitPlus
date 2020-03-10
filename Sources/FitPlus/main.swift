@@ -9,7 +9,4 @@ import NIO
 
 let logs = Log()
 let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-let threadPool = NIOThreadPool(numberOfThreads: 6)
-//threadPool.start()
-let fileIO = NonBlockingFileIO(threadPool: threadPool)
-let server = Server(logs: logs, eventLoopGroup: eventLoopGroup, fileIO: fileIO)
+let server = Server(logs: logs, eventLoopGroup: eventLoopGroup)

@@ -2,3 +2,4 @@
 FitPlus.xcodeproj 
 Package.resolved
 .build/
+.swiftpm
