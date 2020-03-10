@@ -11,55 +11,34 @@ import Foundation
 
 class HttpHandler: ChannelInboundHandler
 {
-    private enum FileIOMethod {
-        case sendfile
-        case nonblockingFileIO
-    }
     public typealias InboundIn = HTTPServerRequestPart
     public typealias OutboundOut = HTTPServerResponsePart
-
-    private enum State {
-        case idle
-        case waitingForRequestBody
-        case sendingResponse
-
-        mutating func requestReceived() {
-            precondition(self == .idle, "Invalid state for request received: \(self)")
-            self = .waitingForRequestBody
-        }
-
-        mutating func requestComplete() {
-            precondition(self == .waitingForRequestBody, "Invalid state for request complete: \(self)")
-            self = .sendingResponse
-        }
-
-        mutating func responseComplete() {
-            precondition(self == .sendingResponse, "Invalid state for response complete: \(self)")
-            self = .idle
-        }
-    }
-
-    private var buffer: ByteBuffer! = nil
-    private var keepAlive = false
-    private var state = State.idle
-    private let htdocsPath: String
-
-    private var infoSavedRequestHead: HTTPRequestHead?
-    private var infoSavedBodyBytes: Int = 0
-
-    private var continuousCount: Int = 0
-
-    private var handler: ((ChannelHandlerContext, HTTPServerRequestPart) -> Void)?
-    private var handlerFuture: EventLoopFuture<Void>?
-    private let fileIO: NonBlockingFileIO
-    private let defaultResponse = "Hello World\r\n"
-
-    public init(fileIO: NonBlockingFileIO, htdocsPath: String) {
+    
+    //FIXME: What is the meaning of all these vars?
+    var buffer: ByteBuffer! = nil
+    var keepAlive = false
+    var state = State.idle
+    let htdocsPath: String
+    var infoSavedRequestHead: HTTPRequestHead?
+    var infoSavedBodyBytes: Int = 0
+    var continuousCount: Int = 0
+    var handler: ((ChannelHandlerContext, HTTPServerRequestPart) -> Void)?
+    var handlerFuture: EventLoopFuture<Void>?
+    let fileIO: NonBlockingFileIO
+    let defaultResponse = "Hello World\r\n"
+    let log: Log
+    
+    public init(fileIO: NonBlockingFileIO, htdocsPath: String, log: Log) {
         self.htdocsPath = htdocsPath
         self.fileIO = fileIO
+        self.log = log
+        log.log("HttpHandler init(fileIO: NonBlockingFileIO, htdocsPath: String, log: Log)")
     }
-
+    
     func handleInfo(context: ChannelHandlerContext, request: HTTPServerRequestPart) {
+        
+        log.log("HttpHandler handleInfo(context: ChannelHandlerContext, request: HTTPServerRequestPart))")
+
         switch request {
         case .head(let request):
             self.infoSavedRequestHead = request
@@ -87,12 +66,15 @@ class HttpHandler: ChannelInboundHandler
             self.completeResponse(context, trailers: nil, promise: nil)
         }
     }
-
+    
     func handleEcho(context: ChannelHandlerContext, request: HTTPServerRequestPart) {
+        log.log("HttpHandler handleEcho(context: ChannelHandlerContext, request: HTTPServerRequestPart)")
         self.handleEcho(context: context, request: request, balloonInMemory: false)
     }
-
+    
     func handleEcho(context: ChannelHandlerContext, request: HTTPServerRequestPart, balloonInMemory: Bool = false) {
+        log.log("HttpHandler handleEcho(context: ChannelHandlerContext, request: HTTPServerRequestPart, balloonInMemory: Bool = false)")
+
         switch request {
         case .head(let request):
             self.keepAlive = request.isKeepAlive
@@ -122,8 +104,10 @@ class HttpHandler: ChannelInboundHandler
             }
         }
     }
-
+    
     func handleJustWrite(context: ChannelHandlerContext, request: HTTPServerRequestPart, statusCode: HTTPResponseStatus = .ok, string: String, trailer: (String, String)? = nil, delay: TimeAmount = .nanoseconds(0)) {
+        
+                log.log("HttpHandler handleJustWrite(context: ChannelHandlerContext, request: HTTPServerRequestPart, statusCode: HTTPResponseStatus = .ok, string: String, trailer: (String, String)? = nil, delay: TimeAmount = .nanoseconds(0))")
         switch request {
         case .head(let request):
             self.keepAlive = request.isKeepAlive
@@ -142,13 +126,16 @@ class HttpHandler: ChannelInboundHandler
                     trailers = HTTPHeaders()
                     trailers?.add(name: trailer.0, value: trailer.1)
                 }
-
+                
                 self.completeResponse(context, trailers: trailers, promise: nil)
             }
         }
     }
-
+    
     func handleContinuousWrites(context: ChannelHandlerContext, request: HTTPServerRequestPart) {
+        
+        log.log("HttpHandler func handleContinuousWrites(context: ChannelHandlerContext, request: HTTPServerRequestPart)")
+        
         switch request {
         case .head(let request):
             self.keepAlive = request.isKeepAlive
@@ -172,7 +159,7 @@ class HttpHandler: ChannelInboundHandler
             break
         }
     }
-
+    
     func handleMultipleWrites(context: ChannelHandlerContext, request: HTTPServerRequestPart, strings: [String], delay: TimeAmount) {
         switch request {
         case .head(let request):
@@ -199,7 +186,7 @@ class HttpHandler: ChannelInboundHandler
             break
         }
     }
-
+    
     func dynamicHandler(request reqHead: HTTPRequestHead) -> ((ChannelHandlerContext, HTTPServerRequestPart) -> Void)? {
         if let howLong = reqHead.uri.chopPrefix("/dynamic/write-delay/") {
             return { context, req in
@@ -208,7 +195,7 @@ class HttpHandler: ChannelInboundHandler
                                      delay: Int64(howLong).map { .milliseconds($0) } ?? .seconds(0))
             }
         }
-
+        
         switch reqHead.uri {
         case "/dynamic/echo":
             return self.handleEcho
@@ -232,10 +219,10 @@ class HttpHandler: ChannelInboundHandler
             return { context, req in self.handleJustWrite(context: context, request: req, statusCode: .notFound, string: "not found") }
         }
     }
-
+    
     private func handleFile(context: ChannelHandlerContext, request: HTTPServerRequestPart, ioMethod: FileIOMethod, path: String) {
         self.buffer.clear()
-
+        
         func sendErrorResponse(request: HTTPRequestHead, _ error: Error) {
             var body = context.channel.allocator.buffer(capacity: 128)
             let response = { () -> HTTPResponseHead in
@@ -260,14 +247,14 @@ class HttpHandler: ChannelInboundHandler
             context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
             context.channel.close(promise: nil)
         }
-
+        
         func responseHead(request: HTTPRequestHead, fileRegion region: FileRegion) -> HTTPResponseHead {
             var response = httpResponseHead(request: request, status: .ok)
             response.headers.add(name: "Content-Length", value: "\(region.endIndex)")
             response.headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
             return response
         }
-
+        
         switch request {
         case .head(let request):
             self.keepAlive = request.isKeepAlive
@@ -333,33 +320,33 @@ class HttpHandler: ChannelInboundHandler
                         _ = try? file.close()
                     }
                 }
-        }
+            }
         case .end:
             self.state.requestComplete()
         default:
             fatalError("oh noes: \(request)")
         }
     }
-
+    
     private func completeResponse(_ context: ChannelHandlerContext, trailers: HTTPHeaders?, promise: EventLoopPromise<Void>?) {
         self.state.responseComplete()
-
+        
         let promise = self.keepAlive ? promise : (promise ?? context.eventLoop.makePromise())
         if !self.keepAlive {
             promise!.futureResult.whenComplete { (_: Result<Void, Error>) in context.close(promise: nil) }
         }
         self.handler = nil
-
+        
         context.writeAndFlush(self.wrapOutboundOut(.end(trailers)), promise: promise)
     }
-
+    
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let reqPart = self.unwrapInboundIn(data)
         if let handler = self.handler {
             handler(context, reqPart)
             return
         }
-
+        
         switch reqPart {
         case .head(let request):
             if request.uri.unicodeScalars.starts(with: "/dynamic".unicodeScalars) {
@@ -375,10 +362,10 @@ class HttpHandler: ChannelInboundHandler
                 self.handler!(context, reqPart)
                 return
             }
-
+            
             self.keepAlive = request.isKeepAlive
             self.state.requestReceived()
-
+            
             var responseHead = httpResponseHead(request: request, status: HTTPResponseStatus.ok)
             self.buffer.clear()
             self.buffer.writeString(self.defaultResponse)
@@ -394,15 +381,15 @@ class HttpHandler: ChannelInboundHandler
             self.completeResponse(context, trailers: nil, promise: nil)
         }
     }
-
+    
     func channelReadComplete(context: ChannelHandlerContext) {
         context.flush()
     }
-
+    
     func handlerAdded(context: ChannelHandlerContext) {
         self.buffer = context.channel.allocator.buffer(capacity: 0)
     }
-
+    
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         switch event {
         case let evt as ChannelEvent where evt == ChannelEvent.inputClosed:

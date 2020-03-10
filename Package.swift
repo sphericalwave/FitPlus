@@ -8,9 +8,7 @@ let package = Package(
     .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
     ],
   targets: [
-    .target(
-      name: "FitPlus",
-      dependencies: ["NIO", "NIOHTTP1"]),
+    .target(name: "FitPlus", dependencies: ["NIO", "NIOHTTP1"]),
     ]
 )
 
