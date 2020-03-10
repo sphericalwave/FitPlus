@@ -40,6 +40,7 @@ let socketBootstrap = ServerBootstrap(group: eventLoopGroup)
     .childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
     .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 1)
     .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: allowHalfClosure)
+
 let pipeBootstrap = NIOPipeBootstrap(group: eventLoopGroup)
     // Set the handlers that are applied to the accepted Channels
     .channelInitializer(childChannelInitializer(channel:))
@@ -53,33 +54,19 @@ defer {
     log.print()
 }
 
-print("htdocs = \(htdocs)")
-
 let channel = try { () -> Channel in
-    switch bindTarget {
-    case .ip(let host, let port):
-        return try socketBootstrap.bind(host: host, port: port).wait()
-    case .unixDomainSocket(let path):
-        return try socketBootstrap.bind(unixDomainSocketPath: path).wait()
-    case .stdio:
-        return try pipeBootstrap.withPipes(inputDescriptor: STDIN_FILENO, outputDescriptor: STDOUT_FILENO).wait()
-    }
+    return try socketBootstrap.bind(host: defaultHost, port: defaultPort).wait()
     }()
 
 let localAddress: String
-if case .stdio = bindTarget {
-    localAddress = "STDIO"
-} else {
-    guard let channelLocalAddress = channel.localAddress else {
-        fatalError("Address was unable to bind. Please check that the socket was not closed or that the address family was understood.")
-    }
-    localAddress = "\(channelLocalAddress)"
+guard let channelLocalAddress = channel.localAddress else {
+    fatalError("Address was unable to bind. Please check that the socket was not closed or that the address family was understood.")
 }
+localAddress = "\(channelLocalAddress)"
 print("Server started and listening on \(localAddress), htdocs path \(htdocs)")
 
-// This will never unblock as we don't close the ServerChannel
-try channel.closeFuture.wait()
+log.print()
+try channel.closeFuture.wait()  // This will never unblock as we don't close the ServerChannel
 
 print("Server closed")
 
-log.print()
