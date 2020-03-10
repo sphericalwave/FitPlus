@@ -9,18 +9,16 @@ import NIO
 
 class Server
 {
-    let log: Log
-    let defaultHost = "::1"
-    let defaultPort = 8888
+    let logs: Log
+    let host = "::1"
+    let port = 8888
     let htdocs = "/dev/null/"
-    //let bindTarget = BindTo.ip(host: defaultHost, port: defaultPort)
-    //var allowHalfClosure = true
     let eventLoopGroup: MultiThreadedEventLoopGroup
     let fileIO: NonBlockingFileIO
-
     
-    init(log: Log, eventLoopGroup: MultiThreadedEventLoopGroup, fileIO: NonBlockingFileIO) {
-        self.log = log
+    init(logs: Log, eventLoopGroup: MultiThreadedEventLoopGroup, fileIO: NonBlockingFileIO) {
+        logs.log("Server init")
+        self.logs = logs
         self.eventLoopGroup = eventLoopGroup
         self.fileIO = fileIO
         //threadPool.start()
@@ -48,33 +46,29 @@ class Server
         defer {
             try! eventLoopGroup.syncShutdownGracefully()
             //try! threadPool.syncShutdownGracefully()
-            log.print()
+            logs.log("Server shutdown gracefully")
+            logs.print()
         }
         
-//        let channel = try { () -> Channel in
-//            return try socketBootstrap.bind(host: defaultHost, port: defaultPort).wait()
-//            }()
-        
-        guard let channel = try? socketBootstrap.bind(host: defaultHost, port: defaultPort).wait() else { fatalError() }
+        guard let channel = try? socketBootstrap.bind(host: host, port: port).wait() else { fatalError() }
         
         let localAddress: String
         guard let channelLocalAddress = channel.localAddress else {
             fatalError("Address unable to bind. Check socket was not closed & address family understood.")
         }
         localAddress = "\(channelLocalAddress)"
-        print("Server started and listening on \(localAddress), htdocs path \(htdocs)")
-        
-        log.print()
+        logs.log("Server started and listening on \(localAddress), htdocs path \(htdocs)")
+        logs.print()
         try! channel.closeFuture.wait()  // This will never unblock as we don't close the ServerChannel
-        
-        print("Server closed")
+        logs.log("Server closed")
     }
     
     //log.log("main.swift func wo object childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> ")
     //TODO: uses fileIO who uses it?
     func childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> {
+        logs.log("Server.childChannelInitializer(channel: Channel) -> EventLoopFuture<Void>")
         return channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {_ in
-            channel.pipeline.addHandler(HttpHandler(fileIO: self.fileIO, htdocsPath: self.htdocs, log: self.log))
+            channel.pipeline.addHandler(HttpHandler(fileIO: self.fileIO, htdocsPath: self.htdocs, logs: self.logs))
         }
     }
 }

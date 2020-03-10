@@ -14,11 +14,15 @@ enum State
     case sendingResponse
 
     mutating func requestReceived() {
+        //logs.log("State requestReceived")
+
         precondition(self == .idle, "Invalid state for request received: \(self)")
         self = .waitingForRequestBody
     }
 
     mutating func requestComplete() {
+        //logs.log("State requestComplete")
+
         precondition(self == .waitingForRequestBody, "Invalid state for request complete: \(self)")
         self = .sendingResponse
     }
