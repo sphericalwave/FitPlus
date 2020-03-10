@@ -7,55 +7,18 @@
 
 import NIO
 
+let log = Log()
 let defaultHost = "::1"
 let defaultPort = 8888
-let defaultHtdocs = "/dev/null/"
-let htdocs: String
-let bindTarget: BindTo
-
-let log = Log()
-log.log("main.swift comand line stuff")
-
-// First argument is the program path
-var arguments = CommandLine.arguments.dropFirst(0) // just to get an ArraySlice<String> from [String]
+let htdocs = "/dev/null/"
+let bindTarget = BindTo.ip(host: defaultHost, port: defaultPort)
 var allowHalfClosure = true
-if arguments.dropFirst().first == .some("--disable-half-closure") {
-    allowHalfClosure = false
-    arguments = arguments.dropFirst()
-}
-let arg1 = arguments.dropFirst().first
-let arg2 = arguments.dropFirst(2).first
-let arg3 = arguments.dropFirst(3).first
-
-print("arg1: \(arg1), arg2: \(arg2), arg3: \(arg3)")
-
-switch (arg1, arg1.flatMap(Int.init), arg2, arg2.flatMap(Int.init), arg3) {
-case (.some(let h), _ , _, .some(let p), let maybeHtdocs):
-    /* second arg an integer --> host port [htdocs] */
-    bindTarget = .ip(host: h, port: p)
-    htdocs = maybeHtdocs ?? defaultHtdocs
-case (_, .some(let p), let maybeHtdocs, _, _):
-    /* first arg an integer --> port [htdocs] */
-    bindTarget = .ip(host: defaultHost, port: p)
-    htdocs = maybeHtdocs ?? defaultHtdocs
-case (.some(let portString), .none, let maybeHtdocs, .none, .none):
-    /* couldn't parse as number --> uds-path-or-stdio [htdocs] */
-    if portString == "-" {
-        bindTarget = .stdio
-    } else {
-        bindTarget = .unixDomainSocket(path: portString)
-    }
-    htdocs = maybeHtdocs ?? defaultHtdocs
-default:
-    htdocs = defaultHtdocs
-    bindTarget = BindTo.ip(host: defaultHost, port: defaultPort)
-}
-
-let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 let threadPool = NIOThreadPool(numberOfThreads: 6)
 threadPool.start()
 
 log.log("main.swift func wo object childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> ")
+//TODO: uses fileIO who uses it?
 func childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> {
     return channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {_ in
         channel.pipeline.addHandler(HttpHandler(fileIO: fileIO, htdocsPath: htdocs, log: log))
@@ -65,7 +28,7 @@ func childChannelInitializer(channel: Channel) -> EventLoopFuture<Void> {
 //The purpose of Bootstrap objects is to streamline the creation of channels.
 
 let fileIO = NonBlockingFileIO(threadPool: threadPool)
-let socketBootstrap = ServerBootstrap(group: group)
+let socketBootstrap = ServerBootstrap(group: eventLoopGroup)
     // Specify backlog and enable SO_REUSEADDR for the server itself
     .serverChannelOption(ChannelOptions.backlog, value: 256)
     .serverChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
@@ -77,7 +40,7 @@ let socketBootstrap = ServerBootstrap(group: group)
     .childChannelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
     .childChannelOption(ChannelOptions.maxMessagesPerRead, value: 1)
     .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: allowHalfClosure)
-let pipeBootstrap = NIOPipeBootstrap(group: group)
+let pipeBootstrap = NIOPipeBootstrap(group: eventLoopGroup)
     // Set the handlers that are applied to the accepted Channels
     .channelInitializer(childChannelInitializer(channel:))
     
@@ -85,7 +48,7 @@ let pipeBootstrap = NIOPipeBootstrap(group: group)
     .channelOption(ChannelOptions.allowRemoteHalfClosure, value: allowHalfClosure)
 
 defer {
-    try! group.syncShutdownGracefully()
+    try! eventLoopGroup.syncShutdownGracefully()
     try! threadPool.syncShutdownGracefully()
     log.print()
 }
